@@ -1,0 +1,448 @@
+{
+  "name": "Social Media Monitoring & Analytics",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "id": "schedule-trigger-1"
+    },
+    {
+      "parameters": {
+        "command": "cd /app && python social_collector.py"
+      },
+      "name": "Collect Social Media Data",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "id": "collect-data-1"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Check if collection was successful\nconst items = $input.all();\nif (items.length === 0 || items[0].json.stderr) {\n  throw new Error('Data collection failed');\n}\nreturn items;"
+      },
+      "name": "Validate Collection",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "id": "validate-collection-1"
+    },
+    {
+      "parameters": {
+        "command": "cd /app && python ml_processor.py"
+      },
+      "name": "Process with ML Models",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [850, 300],
+      "id": "ml-process-1"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Check processing results\nconst items = $input.all();\nif (items.length === 0 || items[0].json.stderr) {\n  throw new Error('ML processing failed');\n}\nreturn items;"
+      },
+      "name": "Validate Processing",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1050, 300],
+      "id": "validate-processing-1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO social_monitoring.raw_posts SELECT * FROM json_populate_recordset(NULL::social_monitoring.raw_posts, '{{$json[\"raw_posts\"]}}') ON CONFLICT (post_id) DO NOTHING;",
+        "additionalFields": {}
+      },
+      "name": "Store Raw Posts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1250, 200],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL account"
+        }
+      },
+      "id": "store-raw-1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO social_monitoring.processed_posts SELECT * FROM json_populate_recordset(NULL::social_monitoring.processed_posts, '{{$json[\"processed_posts\"]}}');",
+        "additionalFields": {}
+      },
+      "name": "Store Processed Posts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1250, 400],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL account"
+        }
+      },
+      "id": "store-processed-1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT p.*, r.title, r.url FROM social_monitoring.processed_posts p JOIN social_monitoring.raw_posts r ON p.post_id = r.post_id WHERE p.alert_triggered = true AND p.processed_at > NOW() - INTERVAL '2 hours';",
+        "additionalFields": {}
+      },
+      "name": "Query Alerts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [1450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL account"
+        }
+      },
+      "id": "query-alerts-1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json[\"rowCount\"]}}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "name": "Check for Alerts",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1650, 300],
+      "id": "check-alerts-1"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format alert message\nconst alerts = $input.all();\nlet message = `🚨 *${alerts.length} New Alert(s) Detected*\\n\\n`;\n\nfor (const alert of alerts.slice(0, 5)) {\n  message += `*${alert.json.title.substring(0, 100)}*\\n`;\n  message += `Sentiment: ${alert.json.sentiment_label} (${alert.json.sentiment_score.toFixed(2)})\\n`;\n  message += `Score: ${alert.json.score} | Comments: ${alert.json.num_comments}\\n`;\n  message += `URL: ${alert.json.url}\\n`;\n  message += `Reasons: ${alert.json.alert_reasons.join(', ')}\\n\\n`;\n}\n\nreturn [{json: {message}}];"
+      },
+      "name": "Format Alert Message",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1850, 200],
+      "id": "format-message-1"
+    },
+    {
+      "parameters": {
+        "url": "={{$node[\"Credentials\"].json[\"slack_webhook\"]}}",
+        "options": {},
+        "bodyParametersJson": "={\"text\": \"{{$json[\"message\"]}}\"}"
+      },
+      "name": "Send Slack Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2050, 150],
+      "id": "slack-alert-1"
+    },
+    {
+      "parameters": {
+        "fromEmail": "{{$node[\"Credentials\"].json[\"from_email\"]}}",
+        "toEmail": "{{$node[\"Credentials\"].json[\"to_emails\"]}}",
+        "subject": "🚨 Social Media Alerts - {{$now.format('YYYY-MM-DD HH:mm')}}",
+        "emailType": "html",
+        "message": "={{$json[\"html_message\"]}}"
+      },
+      "name": "Send Email Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [2050, 250],
+      "credentials": {
+        "smtp": {
+          "id": "2",
+          "name": "SMTP account"
+        }
+      },
+      "id": "email-alert-1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO social_monitoring.pipeline_metrics (metric_name, metric_value, metric_metadata) VALUES ('pipeline_execution', 1, '{\"status\": \"success\", \"timestamp\": \"{{$now.toISO()}}\"}')",
+        "additionalFields": {}
+      },
+      "name": "Log Success Metric",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [2250, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL account"
+        }
+      },
+      "id": "log-success-1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO social_monitoring.pipeline_metrics (metric_name, metric_value, metric_metadata) VALUES ('pipeline_execution', 0, '{\"status\": \"error\", \"error\": \"{{$json[\"error\"]}}\", \"timestamp\": \"{{$now.toISO()}}\"}')",
+        "additionalFields": {}
+      },
+      "name": "Log Error Metric",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [850, 500],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL account"
+        }
+      },
+      "id": "log-error-1"
+    },
+    {
+      "parameters": {
+        "url": "={{$node[\"Credentials\"].json[\"slack_webhook\"]}}",
+        "options": {},
+        "bodyParametersJson": "={\"text\": \"❌ *Pipeline Error*\\n```{{$json[\"error\"]}}```\"}"
+      },
+      "name": "Notify Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1050, 500],
+      "id": "notify-error-1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT metric_name, AVG(metric_value) as avg_value, COUNT(*) as count FROM social_monitoring.pipeline_metrics WHERE recorded_at > NOW() - INTERVAL '24 hours' GROUP BY metric_name;",
+        "additionalFields": {}
+      },
+      "name": "Health Check",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [2250, 450],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "PostgreSQL account"
+        }
+      },
+      "id": "health-check-1"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Collect Social Media Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Social Media Data": {
+      "main": [
+        [
+          {
+            "node": "Validate Collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Collection": {
+      "main": [
+        [
+          {
+            "node": "Process with ML Models",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Error Metric",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process with ML Models": {
+      "main": [
+        [
+          {
+            "node": "Validate Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Processing": {
+      "main": [
+        [
+          {
+            "node": "Store Raw Posts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Store Processed Posts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Error Metric",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Raw Posts": {
+      "main": [
+        [
+          {
+            "node": "Query Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Processed Posts": {
+      "main": [
+        [
+          {
+            "node": "Query Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Alerts": {
+      "main": [
+        [
+          {
+            "node": "Check for Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Alerts": {
+      "main": [
+        [
+          {
+            "node": "Format Alert Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Success Metric",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Alert Message": {
+      "main": [
+        [
+          {
+            "node": "Send Slack Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Email Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Slack Alert": {
+      "main": [
+        [
+          {
+            "node": "Log Success Metric",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email Alert": {
+      "main": [
+        [
+          {
+            "node": "Log Success Metric",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Success Metric": {
+      "main": [
+        [
+          {
+            "node": "Health Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Error Metric": {
+      "main": [
+        [
+          {
+            "node": "Notify Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "social-media",
+      "id": "1"
+    },
+    {
+      "name": "ml-pipeline",
+      "id": "2"
+    }
+  ],
+  "meta": {
+    "instanceId": "social-monitoring-instance-1"
+  },
+  "id": "social-monitoring-workflow",
+  "versionId": "1.0.0"
+}
