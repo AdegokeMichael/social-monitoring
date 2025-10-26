@@ -1,0 +1,78 @@
+{
+  "reddit": {
+    "client_id": "YOUR_REDDIT_CLIENT_ID",
+    "client_secret": "YOUR_REDDIT_CLIENT_SECRET",
+    "user_agent": "SocialMediaMonitor/1.0 (by /u/yourusername)"
+  },
+  "monitoring": {
+    "keywords": [
+      "artificial intelligence",
+      "machine learning",
+      "data science",
+      "AI",
+      "deep learning",
+      "neural network"
+    ],
+    "subreddits": [
+      "artificial",
+      "MachineLearning",
+      "datascience",
+      "technology",
+      "programming"
+    ],
+    "posts_per_subreddit": 50,
+    "collection_interval_minutes": 60
+  },
+  "ml": {
+    "sentiment_model": "distilbert-base-uncased-finetuned-sst-2-english",
+    "model_version": "v1.0",
+    "confidence_threshold": 0.8
+  },
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "database": "social_monitoring",
+    "user": "postgres",
+    "password": "YOUR_DB_PASSWORD"
+  },
+  "alerts": {
+    "enabled": true,
+    "smtp_host": "smtp.gmail.com",
+    "smtp_port": 587,
+    "smtp_user": "your-email@gmail.com",
+    "smtp_password": "YOUR_APP_PASSWORD",
+    "from_email": "your-email@gmail.com",
+    "email_recipients": [
+      "admin@example.com",
+      "team@example.com"
+    ],
+    "slack_webhook_url": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  },
+  "alert_conditions": {
+    "negative_sentiment_threshold": 0.85,
+    "high_engagement_score": 100,
+    "high_engagement_comments": 50,
+    "viral_threshold": 500,
+    "critical_keywords": [
+      "crisis",
+      "breach",
+      "hack",
+      "leak",
+      "scandal",
+      "outage",
+      "failure",
+      "down"
+    ]
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "files": {
+      "main": "pipeline.log",
+      "collector": "social_collector.log",
+      "processor": "ml_processor.log",
+      "database": "database.log",
+      "alerts": "alerts.log"
+    }
+  }
+}
